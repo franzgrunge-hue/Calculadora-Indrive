@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InDrive Pro - Toyota Agya 2019</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.263.1/umd/lucide.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { -webkit-tap-highlight-color: transparent; }
+        input, select, button { font-size: 16px !important; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const { Calculator, Car, Plus, History, BarChart3, Settings, Save } = lucide;
+
+        function InDriveApp() {
+            const [activeTab, setActiveTab] = useState('calculator');
+            const [rides, setRides] = useState([]);
+            
+            const [config, setConfig] = useState({
+                fuelPrice: 16.5,
+                fuelConsumption: 45,
+                hourlyWage: 8,
+                monthlyCosts: {
+                    garage: 200,
+                    insurance: 150,
+                    washing: 160,
+                    maintenance: 200,
+                    tires: 100,
+                    depreciation: 500,
+                    permits: 50,
+                },
+                workDaysPerMonth: 26,
+            });
+
+            const [newRide, setNewRide] = useState({
+                date: new Date().toISOString().split('T')[0],
+                time: '09:00',
+                origin: '',
+                destination: '',
+                distance: 5,
+                duration: 0.5,
+                suggestedPrice: 15,
+                finalPrice: 15,
+                status: 'completed'
+            });
+
+            // CARGAR datos guardados al iniciar
+            useEffect(() => {
+                try {
+                    const savedRides = JSON.parse(localStorage.getItem('indrive_rides') || '[]');
+                    const savedConfig = JSON.parse(localStorage.getItem('indrive_config') || 'null');
+                    
+                    if (savedRides.length > 0) setRides(savedRides);
+                    if (savedConfig) setConfig(savedConfig);
+                } catch (error) {
+                    console.error('Error cargando datos:', error);
+                }
+            }, []);
+
+            // GUARDAR carreras cuando cambien
+            useEffect(() => {
+                try {
+                    localStorage.setItem('indrive_rides', JSON.stringify(rides));
+                } catch (error) {
+                    console.error('Error guardando carreras:', error);
+                }
+            }, [rides]);
+
+            // GUARDAR configuración cuando cambie
+            useEffect(() => {
+                try {
+                    localStorage.setItem('indrive_config', JSON.stringify(config));
+                } catch (error) {
+                    console.error('Error guardando configuración:', error);
+                }
+            }, [config]);
+
+            const calculateSuggestedPrice = (distance, duration) => {
+                const totalFixedCosts = Object.values(config.monthlyCosts).reduce((sum, cost) => sum + cost, 0);
+                const estimatedMonthlyRides = config.workDaysPerMonth * 8;
+                const fixedCostPerRide = totalFixedCosts / estimatedMonthlyRides;
+                
+                const fuelCostPerKm = config.fuelPrice / config.fuelConsumption;
+                const fuelCost = fuelCostPerKm * distance;
+                const laborCost = config.hourlyWage * duration;
+                
+                const directCosts = fuelCost + laborCost + fixedCostPerRide;
+                const grossPrice = directCosts / 0.772;
+                
+                const minPrice = distance * 3.30;
+                const recommendedPrice = distance * 3.75;
+                const idealPrice = distance * 4.40;
+                
+                const finalPrice = Math.max(grossPrice, minPrice);
+                
+                return {
+                    calculated: Math.ceil(grossPrice * 2) / 2,
+                    minimum: minPrice,
+                    recommended: recommendedPrice,
+                    ideal: idealPrice,
+                    suggested: Math.ceil(finalPrice * 2) / 2
+                };
+            };
+
+            const getPriceCategory = (pricePerKm) => {
+                if (pricePerKm >= 4.40) return { color: 'text-green-600', label: 'Ideal' };
+                if (pricePerKm >= 3.75) return { color: 'text-blue-600', label: 'Recomendable' };
+                if (pricePerKm >= 3.30) return { color: 'text-yellow-600', label: 'Mínimo' };
+                return { color: 'text-red-600', label: 'Bajo' };
+            };
+
+            const calculateRideCosts = (price, distance, duration) => {
+                const appCommission = price * 0.10;
+                const igv = appCommission * 0.18;
+                const totalCommissions = appCommission + igv;
+                
+                const fuelCostPerKm = config.fuelPrice / config.fuelConsumption;
+                const fuelCost = fuelCostPerKm * distance;
+                const laborCost = config.hourlyWage * duration;
+                
+                const totalFixedCosts = Object.values(config.monthlyCosts).reduce((sum, cost) => sum + cost, 0);
+                const estimatedMonthlyRides = config.workDaysPerMonth * 8;
+                const fixedCostPerRide = totalFixedCosts / estimatedMonthlyRides;
+                
+                const totalCosts = totalCommissions + fuelCost + laborCost + fixedCostPerRide;
+                const netProfit = price - totalCosts;
+                
+                return {
+                    appCommission,
+                    igv,
+                    totalCommissions,
+                    fuelCost,
+                    laborCost,
+                    fixedCostPerRide,
+                    totalCosts,
+                    netProfit,
+                    marginPercent: (netProfit / price) * 100
+                };
+            };
+
+            useEffect(() => {
+                const priceData = calculateSuggestedPrice(newRide.distance, newRide.duration);
+                setNewRide(prev => ({ 
+                    ...prev, 
+                    suggestedPrice: priceData.suggested, 
+                    finalPrice: priceData.recommended
+                }));
+            }, [newRide.distance, newRide.duration, config]);
+
+            const addRide = () => {
+                if (!newRide.origin || !newRide.destination) {
+                    alert('Por favor completa origen y destino');
+                    return;
+                }
+                
+                const rideWithId = {
+                    ...newRide,
+                    id: Date.now(),
+                    costs: calculateRideCosts(newRide.finalPrice, newRide.distance, newRide.duration)
+                };
+                
+                setRides([rideWithId, ...rides]);
+                
+                setNewRide({
+                    date: new Date().toISOString().split('T')[0],
+                    time: '09:00',
+                    origin: '',
+                    destination: '',
+                    distance: 5,
+                    duration: 0.5,
+                    suggestedPrice: 15,
+                    finalPrice: 15,
+                    status: 'completed'
+                });
+                
+                setActiveTab('history');
+            };
+
+            const clearAllData = () => {
+                if (confirm('¿Estás seguro? Se borrarán todas las carreras y configuración.')) {
+                    setRides([]);
+                    setConfig({
+                        fuelPrice: 16.5,
+                        fuelConsumption: 45,
+                        hourlyWage: 8,
+                        monthlyCosts: {
+                            garage: 200,
+                            insurance: 150,
+                            washing: 160,
+                            maintenance: 200,
+                            tires: 100,
+                            depreciation: 500,
+                            permits: 50,
+                        },
+                        workDaysPerMonth: 26,
+                    });
+                    localStorage.clear();
+                    alert('Datos borrados exitosamente');
+                }
+            };
+
+            const getStats = () => {
+                if (rides.length === 0) return null;
+                
+                const totalRides = rides.length;
+                const totalRevenue = rides.reduce((sum, ride) => sum + ride.finalPrice, 0);
+                const totalProfit = rides.reduce((sum, ride) => sum + ride.costs.netProfit, 0);
+                const avgProfit = totalProfit / totalRides;
+                const avgPrice = totalRevenue / totalRides;
+                const totalDistance = rides.reduce((sum, ride) => sum + ride.distance, 0);
+                
+                return {
+                    totalRides,
+                    totalRevenue,
+                    totalProfit,
+                    avgProfit,
+                    avgPrice,
+                    totalDistance,
+                    profitMargin: (totalProfit / totalRevenue) * 100
+                };
+            };
+
+            const stats = getStats();
+
+            return (
+                <div className="max-w-4xl mx-auto p-3 bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+                    {/* Header */}
+                    <div className="bg-white rounded-xl shadow-lg p-4 mb-4">
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-3">
+                                <Car className="text-blue-600" size={28} />
+                                <div>
+                                    <h1 className="text-lg font-bold text-gray-800">InDrive Pro</h1>
+                                    <p className="text-gray-600 text-sm">Toyota Agya 2019</p>
+                                </div>
+                            </div>
+                            <div className="text-xs text-green-600 font-medium">
+                                ✅ Datos guardados
+                            </div>
+                        </div>
+
+                        {/* Navigation */}
+                        <div className="grid grid-cols-5 gap-1">
+                            {[
+                                { key: 'calculator', icon: Calculator, label: 'Calc' },
+                                { key: 'register', icon: Plus, label: 'Nuevo' },
+                                { key: 'history', icon: History, label: 'Lista' },
+                                { key: 'analytics', icon: BarChart3, label: 'Stats' },
+                                { key: 'settings', icon: Settings, label: 'Config' }
+                            ].map(({ key, icon: Icon, label }) => (
+                                <button
+                                    key={key}
+                                    onClick={() => setActiveTab(key)}
+                                    className={`flex flex-col items-center gap-1 px-2 py-3 rounded-lg text-xs transition-all ${
+                                        activeTab === key ? 'bg-blue-500 text-white' : 'bg-white text-gray-600'
+                                    }`}
+                                >
+                                    <Icon size={16} />
+                                    <span>{label}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Content */}
+                    <div className="bg-white rounded-xl shadow-lg p-4">
+                        {activeTab === 'calculator' && (
+                            <div>
+                                <h2 className="text-lg font-bold mb-4">Calculadora de Precio</h2>
+                                
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Distancia (km)</label>
+                                            <input
+                                                type="number"
+                                                value={newRide.distance}
+                                                onChange={(e) => setNewRide({...newRide, distance: Number(e.target.value)})}
+                                                className="w-full px-3 py-2 text-lg border border-gray-300 rounded-md"
+                                                step="0.5"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Duración (h)</label>
+                                            <input
+                                                type="number"
+                                                value={newRide.duration}
+                                                onChange={(e) => setNewRide({...newRide, duration: Number(e.target.value)})}
+                                                className="w-full px-3 py-2 text-lg border border-gray-300 rounded-md"
+                                                step="0.1"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-gray-50 p-4 rounded-lg">
+                                        <h4 className="font-semibold mb-3 text-sm">💰 Precios por Kilómetro</h4>
+                                        {(() => {
+                                            const priceData = calculateSuggestedPrice(newRide.distance, newRide.duration);
+                                            return (
+                                                <div className="space-y-2 text-sm">
+                                                    <div className="flex justify-between items-center p-2 rounded bg-red-100">
+                                                        <span className="font-medium">Mínimo (S/ 3.30/km)</span>
+                                                        <span className="font-bold text-red-600">S/ {priceData.minimum.toFixed(2)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center p-2 rounded bg-blue-100">
+                                                        <span className="font-medium">Recomendable (S/ 3.75/km)</span>
+                                                        <span className="font-bold text-blue-600">S/ {priceData.recommended.toFixed(2)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center p-2 rounded bg-green-100">
+                                                        <span className="font-medium">Ideal (S/ 4.40/km)</span>
+                                                        <span className="font-bold text-green-600">S/ {priceData.ideal.toFixed(2)}</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+
+                                    <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-4 rounded-xl">
+                                        <h3 className="font-bold mb-2">Precio Sugerido</h3>
+                                        {(() => {
+                                            const priceData = calculateSuggestedPrice(newRide.distance, newRide.duration);
+                                            const pricePerKm = priceData.suggested / newRide.distance;
+                                            const category = getPriceCategory(pricePerKm);
+                                            return (
+                                                <>
+                                                    <div className="text-2xl font-bold mb-2">S/ {priceData.suggested.toFixed(2)}</div>
+                                                    <div className="text-sm text-green-100 mb-3">{newRide.distance} km • {newRide.duration}h</div>
+                                                    <div className="bg-green-600 bg-opacity-50 p-2 rounded-lg text-sm">
+                                                        <div className="flex justify-between">
+                                                            <span>Precio/km:</span>
+                                                            <span className="font-bold">S/ {pricePerKm.toFixed(2)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between">
+                                                            <span>Categoría:</span>
+                                                            <span className="font-bold">{category.label}</span>
+                                                        </div>
+                                                    </div>
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+
+                                    <div className="bg-gray-50 p-4 rounded-lg">
+                                        <h4 className="font-semibold mb-3 text-sm">Desglose de Costos</h4>
+                                        {(() => {
+                                            const priceData = calculateSuggestedPrice(newRide.distance, newRide.duration);
+                                            const costs = calculateRideCosts(priceData.suggested, newRide.distance, newRide.duration);
+                                            return (
+                                                <div className="space-y-2 text-xs">
+                                                    <div className="flex justify-between">
+                                                        <span>Precio carrera:</span>
+                                                        <span className="font-medium">S/ {priceData.suggested.toFixed(2)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-red-600">
+                                                        <span>- Comisión + IGV:</span>
+                                                        <span>S/ {costs.totalCommissions.toFixed(2)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-red-600">
+                                                        <span>- Combustible:</span>
+                                                        <span>S/ {costs.fuelCost.toFixed(2)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-red-600">
+                                                        <span>- Trabajo + Costos:</span>
+                                                        <span>S/ {(costs.laborCost + costs.fixedCostPerRide).toFixed(2)}</span>
+                                                    </div>
+                                                    <hr className="my-2" />
+                                                    <div className="flex justify-between font-bold text-green-600">
+                                                        <span>Ganancia neta:</span>
+                                                        <span>S/ {costs.netProfit.toFixed(2)} ({costs.marginPercent.toFixed(1)}%)</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'register' && (
+                            <div>
+                                <h2 className="text-lg font-bold mb-4">Registrar Carrera</h2>
+                                
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Fecha</label>
+                                            <input
+                                                type="date"
+                                                value={newRide.date}
+                                                onChange={(e) => setNewRide({...newRide, date: e.target.value})}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Hora</label>
+                                            <input
+                                                type="time"
+                                                value={newRide.time}
+                                                onChange={(e) => setNewRide({...newRide, time: e.target.value})}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Origen</label>
+                                        <input
+                                            type="text"
+                                            value={newRide.origin}
+                                            onChange={(e) => setNewRide({...newRide, origin: e.target.value})}
+                                            placeholder="Ej: Plaza de Armas"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Destino</label>
+                                        <input
+                                            type="text"
+                                            value={newRide.destination}
+                                            onChange={(e) => setNewRide({...newRide, destination: e.target.value})}
+                                            placeholder="Ej: Terminal Terrestre"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                        />
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Distancia (km)</label>
+                                            <input
+                                                type="number"
+                                                value={newRide.distance}
+                                                onChange={(e) => setNewRide({...newRide, distance: Number(e.target.value)})}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                                step="0.5"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Duración (h)</label>
+                                            <input
+                                                type="number"
+                                                value={newRide.duration}
+                                                onChange={(e) => setNewRide({...newRide, duration: Number(e.target.value)})}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                                step="0.1"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Precio sugerido</label>
+                                            <input
+                                                type="number"
+                                                value={newRide.suggestedPrice}
+                                                readOnly
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Precio final</label>
+                                            <input
+                                                type="number"
+                                                value={newRide.finalPrice}
+                                                onChange={(e) => setNewRide({...newRide, finalPrice: Number(e.target.value)})}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                                step="0.5"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-blue-50 p-3 rounded-lg">
+                                        <h4 className="font-semibold text-blue-800 mb-2 text-sm">Vista Previa</h4>
+                                        {(() => {
+                                            const costs = calculateRideCosts(newRide.finalPrice, newRide.distance, newRide.duration);
+                                            const pricePerKm = newRide.finalPrice / newRide.distance;
+                                            const category = getPriceCategory(pricePerKm);
+                                            return (
+                                                <div className="space-y-1 text-xs">
+                                                    <div className="flex justify-between">
+                                                        <span>Ruta:</span>
+                                                        <span className="font-medium">{newRide.origin || '...'} → {newRide.destination || '...'}</span>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span>Precio:</span>
+                                                        <span className="font-medium">S/ {newRide.finalPrice.toFixed(2)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span>Precio/km:</span>
+                                                        <span className={`font-medium ${category.color}`}>
+                                                            S/ {pricePerKm.toFixed(2)} ({category.label})
+                                                        </span>
+                                                    </div>
+                                                    <hr className="my-1" />
+                                                    <div className="flex justify-between">
+                                                        <span>Ganancia:</span>
+                                                        <span className={`font-medium ${costs.netProfit > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                            S/ {costs.netProfit.toFixed(2)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+
+                                    <button
+                                        onClick={addRide}
+                                        className="w-full bg-green-500 text-white py-3 rounded-lg hover:bg-green-600 transition-colors flex items-center justify-center gap-2 font-semibold"
+                                    >
+                                        <Save size={18} />
+                                        Registrar Carrera
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'history' && (
+                            <div>
+                                <h2 className="text-lg font-bold mb-4">Historial ({rides.length})</h2>
+                                
+                                {rides.length === 0 ? (
+                                    <div className="text-center py-12 text-gray-500">
+                                        <History size={48} className="mx-auto mb-4 opacity-50" />
+                                        <p className="text-sm">No hay carreras registradas</p>
+                                        <button
+                                            onClick={() => setActiveTab('register')}
+                                            className="mt-4 bg-blue-500 text-white px-4 py-2 rounded-lg text-sm"
+                                        >
+                                            Registrar primera carrera
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {rides.map((ride) => (
+                                            <div key={ride.id} className="border rounded-lg p-3">
+                                                <div className="flex justify-between items-start mb-2">
+                                                    <div className="flex-1">
+                                                        <div className="text-xs text-gray-600">{ride.date} - {ride.time}</div>
+                                                        <div className="font-medium text-sm">{ride.origin} → {ride.destination}</div>
+                                                        <div className="text-xs text-gray-600">{ride.distance} km • {ride.duration}h</div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="text-lg font-bold">S/ {ride.finalPrice.toFixed(2)}</div>
+                                                        {(() => {
+                                                            const pricePerKm = ride.finalPrice / ride.distance;
+                                                            const category = getPriceCategory(pricePerKm);
+                                                            return (
+                                                                <div className={`text-xs ${category.color} font-medium`}>
+                                                                    {category.label}
+                                                                </div>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="grid grid-cols-2 gap-4 text-xs">
+                                                    <div>
+                                                        <div className="text-gray-600">Costos</div>
+                                                        <div>Comisiones: S/ {ride.costs.totalCommissions.toFixed(2)}</div>
+                                                        <div>Operativos: S/ {(ride.costs.fuelCost + ride.costs.laborCost).toFixed(2)}</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-gray-600">Ganancia</div>
+                                                        <div className={`font-semibold ${ride.costs.netProfit > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                            S/ {ride.costs.netProfit.toFixed(2)}
+                                                        </div>
+                                                        <div className="text-gray-500">
+                                                            {ride.costs.marginPercent.toFixed(1)}% margen
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {activeTab === 'analytics' && (
+                            <div>
+                                <h2 className="text-lg font-bold mb-4">Estadísticas</h2>
+                                
+                                {!stats ? (
+                                    <div className="text-center py-12 text-gray-500">
+                                        <BarChart3 size={48} className="mx-auto mb-4 opacity-50" />
+                                        <p className="text-sm">Registra carreras para ver estadísticas</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="bg-blue-50 p-3 rounded-lg text-center">
+                                                <div className="text-xl font-bold text-blue-600">{stats.totalRides}</div>
+                                                <div className="text-xs text-gray-600">Carreras</div>
+                                            </div>
+                                            <div className="bg-green-50 p-3 rounded-lg text-center">
+                                                <div className="text-xl font-bold text-green-600">S/ {stats.totalRevenue.toFixed(0)}</div>
+                                                <div className="text-xs text-gray-600">Ingresos</div>
+                                            </div>
+                                            <div className="bg-purple-50 p-3 rounded-lg text-center">
+                                                <div className="text-xl font-bold text-purple-600">S/ {stats.totalProfit.toFixed(0)}</div>
+                                                <div className="text-xs text-gray-600">Ganancia</div>
+                                            </div>
+                                            <div className="bg-orange-50 p-3 rounded-lg text-center">
+                                                <div className="text-xl font-bold text-orange-600">{stats.profitMargin.toFixed(1)}%</div>
+                                                <div className="text-xs text-gray-600">Margen</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-gray-50 p-3 rounded-lg">
+                                            <h4 className="font-semibold mb-2 text-sm">Promedios</h4>
+                                            <div className="space-y-1 text-xs">
+                                                <div className="flex justify-between">
+                                                    <span>Precio por carrera:</span>
+                                                    <span>S/ {stats.avgPrice.toFixed(2)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span>Ganancia por carrera:</span>
+                                                    <span>S/ {stats.avgProfit.toFixed(2)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span>Precio por km:</span>
+                                                    <span>S/ {(stats.totalRevenue / stats.totalDistance).toFixed(2)}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-yellow-50 p-3 rounded-lg">
+                                            <h4 className="font-semibold text-yellow-800 mb-2 text-sm">💡 Recomendaciones</h4>
+                                            <div className="text-xs text-yellow-700 space-y-1">
+                                                {stats.profitMargin > 20 && (
+                                                    <div>✅ Excelente margen ({stats.profitMargin.toFixed(1)}%)</div>
+                                                )}
+                                                {stats.profitMargin >= 10 && stats.profitMargin <= 20 && (
+                                                    <div>⚠️ Margen aceptable ({stats.profitMargin.toFixed(1)}%)</div>
+                                                )}
+                                                {stats.profitMargin < 10 && (
+                                                    <div>🔴 Margen bajo ({stats.profitMargin.toFixed(1)}%)</div>
+                                                )}
+                                                <div>• Mantén precios mínimo en S/ 3.30/km</div>
+                                                <div>• Busca carreras de mayor distancia</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {activeTab === 'settings' && (
+                            <div>
+                                <h2 className="text-lg font-bold mb-4">Configuración</h2>
+                                
+                                <div className="space-y-4">
+                                    <div className="bg-orange-50 p-3 rounded-lg">
+                                        <h4 className="font-semibold text-orange-800 mb-2 text-sm">⛽ Combustible</h4>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs text-gray-700 mb-1">Precio/galón (S/)</label>
+                                                <input
+                                                    type="number"
+                                                    value={config.fuelPrice}
+                                                    onChange={(e) => setConfig({...config, fuelPrice: Number(e.target.value)})}
+                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                    step="0.1"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs text-gray-700 mb-1">Rendimiento (km/gal)</label>
+                                                <input
+                                                    type="number"
+                                                    value={config.fuelConsumption}
+                                                    onChange={(e) => setConfig({...config, fuelConsumption: Number(e.target.value)})}
+                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-green-50 p-3 rounded-lg">
+                                        <h4 className="font-semibold text-green-800 mb-2 text-sm">💼 Trabajo</h4>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs text-gray-700 mb-1">Valor hora (S/)</label>
+                                                <input
+                                                    type="number"
+                                                    value={config.hourlyWage}
+                                                    onChange={(e) => setConfig({...config, hourlyWage: Number(e.target.value)})}
+                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                    step="0.5"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs text-gray-700 mb-1">Días/mes</label>
+                                                <input
+                                                    type="number"
+                                                    value={config.workDaysPerMonth}
+                                                    onChange={(e) => setConfig({...config, workDaysPerMonth: Number(e.target.value)})}
+                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-red-50 p-3 rounded-lg">
+                                        <h4 className="font-semibold text-red-800 mb-2 text-sm">📊 Costos Mensuales (S/)</h4>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                                <label className="block text-xs text-gray-700 mb-1">Cochera</label>
+                                                <input
+                                                    type="number"
+                                                    value={config.monthlyCosts.garage}
+                                                    onChange={(e) => setConfig({
+                                                        ...config,
+                                                        monthlyCosts: {...config.monthlyCosts, garage: Number(e.target.value)}
+                                                    })}
+                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs text-gray-700 mb-1">Seguro</label>
+                                                <input
+                                                    type="number"
+                                                    value={config.monthlyCosts.insurance}
+                                                    onChange={(e) => setConfig({
+                                                        ...config,
+                                                        monthlyCosts: {...config.monthlyCosts, insurance: Number(e.target.value)}
+                                                    })}
+                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs text-gray-700 mb-1">Lavado</label>
+                                                <input
+                                                    type="number"
+                                                    value={config.monthlyCosts.washing}
+                                                    onChange={(e) => setConfig({
+                                                        ...config,
+                                                        monthlyCosts: {...config.monthlyCosts, washing: Number(e.target.value)}
+                                                    })}
+                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs text-gray-700 mb-1">Mantenimiento</label>
+                                                <input
+                                                    type="number"
+                                                    value={config.monthlyCosts.maintenance}
+                                                    onChange={(e) => setConfig({
+                                                        ...config,
+                                                        monthlyCosts: {...config.monthlyCosts, maintenance: Number(e.target.value)}
+                                                    })}
+                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs text-gray-700 mb-1">Llantas</label>
+                                                <input
+                                                    type="number"
+                                                    value={config.monthlyCosts.tires}
+                                                    onChange={(e) => setConfig({
+                                                        ...config,
+                                                        monthlyCosts: {...config.monthlyCosts, tires: Number(e.target.value)}
+                                                    })}
+                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs text-gray-700 mb-1">Depreciación</label>
+                                                <input
+                                                    type="number"
+                                                    value={config.monthlyCosts.depreciation}
+                                                    onChange={(e) => setConfig({
+                                                        ...config,
+                                                        monthlyCosts: {...config.monthlyCosts, depreciation: Number(e.target.value)}
+                                                    })}
+                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-blue-50 p-3 rounded-lg">
+                                        <h4 className="font-semibold text-blue-800 mb-2 text-sm">📏 Márgenes por Kilómetro</h4>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <div className="bg-red-100 p-2 rounded text-center">
+                                                <div className="text-lg font-bold text-red-600">S/ 3.30</div>
+                                                <div className="text-xs text-red-700">Mínimo</div>
+                                            </div>
+                                            <div className="bg-blue-100 p-2 rounded text-center">
+                                                <div className="text-lg font-bold text-blue-600">S/ 3.75</div>
+                                                <div className="text-xs text-blue-700">Recomendable</div>
+                                            </div>
+                                            <div className="bg-green-100 p-2 rounded text-center">
+                                                <div className="text-lg font-bold text-green-600">S/ 4.40</div>
+                                                <div className="text-xs text-green-700">Ideal</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-yellow-50 p-3 rounded-lg">
+                                        <h4 className="font-semibold text-yellow-800 mb-2 text-sm">💡 Consejos</h4>
+                                        <div className="text-xs text-yellow-700 space-y-1">
+                                            <div>• Actualiza el precio del combustible regularmente</div>
+                                            <div>• Ajusta la depreciación según el uso del vehículo</div>
+                                            <div>• <strong>Nunca aceptes carreras por debajo de S/ 3.30/km</strong></div>
+                                            <div>• Revisa los costos de mantenimiento cada 3 meses</div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-red-50 border border-red-200 p-3 rounded-lg">
+                                        <h4 className="font-semibold text-red-800 mb-2 text-sm">⚠️ Zona de Peligro</h4>
+                                        <button
+                                            onClick={clearAllData}
+                                            className="w-full bg-red-500 text-white py-2 rounded-lg text-sm font-medium hover:bg-red-600 transition-colors"
+                                        >
+                                            Borrar Todos los Datos
+                                        </button>
+                                        <p className="text-xs text-red-600 mt-1">Esto eliminará todas las carreras y configuración guardada</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<InDriveApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>
